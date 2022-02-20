@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: grafana
+  namespace: grafana
+spec:
+  serviceName: "grafana"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      initContainers:
+      - name: grafana-data-init
+        image: harbor.jiangxl.com/prometheus/busybox:1.30
+        command: ["sh","-c","chown -R 472:472 /var/lib/grafana/"]
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: grafana-data
+          mountPath: /var/lib/grafana        
+      containers:
+      - name: grafana
+        image: harbor.jiangxl.com/prometheus/grafana:6.6.2
+        imagePullPolicy: "IfNotPresent"
+        ports:
+          - containerPort: 3000
+            protocol: TCP
+        resources:
+          limits:
+            cpu: 100m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        volumeMounts:
+          - name: grafana-data
+            mountPath: /var/lib/grafana
+            subPath: ""
+  volumeClaimTemplates:
+    - metadata:
+        name: grafana-data
+      spec:
+        storageClassName: grafana-storageclass
+        accessModes:
+        - ReadWriteMany
+        resources:
+          requests:
+            storage: 10Gi
+
