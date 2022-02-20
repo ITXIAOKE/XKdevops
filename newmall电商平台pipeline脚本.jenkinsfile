@@ -1,0 +1,111 @@
+pipeline {
+    agent { label 'jenkins-slave' }                
+
+    environment {                                   
+        IMAGE_REPO = "harbor.jiangxl.com/project"            
+        QIYEWEIXIN_TOKEN_CREDS = credentials('qiyeweixin-token')      
+    }
+
+	parameters {                              
+		gitParameter(name: 'Brach_list',defaultValue: 'master',type: 'BRANCH',description: '查看可用的分支列表',quickFilterEnabled: true)  
+        string(name: 'VERSION',defaultValue: '',description: '填写要更新的分支',trim: true)         
+		string(name: 'project_namespace',defaultValue: 'newbee-mall',description: '项目所在的命名空间',trim: true)               
+        string(name: 'project_kind',defaultValue: 'deployment',description: '项目资源所使用的pod控制器',trim: true)          
+        string(name: 'project_k8s_name',defaultValue: 'newbee-mall',description: '项目所使用的pod容器名称',trim: true)                 
+        string(name: 'project',defaultValue: 'newbee-mall',description: '项目/程序名称',trim: true)                                     
+	}	
+    stages {                      
+        stage('运维确认信息') {                            
+            steps {
+                input message: """                          
+                更新的程序: ${JOB_NAME}
+                更新的分支版本: ${VERSION}
+                项目所在的命名空间: ${project_namespace}
+                项目所使用的资源类型: ${project_kind}
+                项目所使用的资源名称及容器名称: ${project_k8s_name}""", ok: "更新"                    
+            }
+        }
+        stage('拉取项目代码') {                                  
+            steps {
+                container('jenkins-build'){
+                    checkout([$class: 'GitSCM', branches: [[name: '$VERSION']], extensions: [], userRemoteConfigs: [[credentialsId: 'gitlab-update', url: 'http://gitlab.jiangxl.com//root/newbee-mall.git']]])
+                }
+            }
+        }
+        stage('maven编译') {                                  
+            steps {
+                container('jenkins-build'){
+                    retry(3) {sh """
+                            source /etc/profile
+                            mvn clean package
+                        """
+                    }
+                }              
+            }
+        }
+        stage('Dockerfile构建项目镜像') {			                        
+            steps {
+                container('jenkins-build'){   
+				retry(3) {sh """        
+                mv target/newbee-mall-1.0.0-SNAPSHOT.jar target/newbee-mall.jar
+				echo "
+FROM harbor.jiangxl.com/project/newbee-mall:v1
+COPY target/newbee-mall.jar /data/newbee-mall/
+EXPOSE 8080
+EXPOSE 9100
+				" >Dockerfile
+				"""}
+                retry(3) {sh 'docker build -t ${IMAGE_REPO}/${project}:${VERSION}.v${BUILD_ID} . '}                        
+                }	        
+            }
+        }   
+        stage('推送镜像到Harbor仓库') {            
+            steps {
+                container('jenkins-build'){                
+ 				   retry(3) {sh """
+                     docker login -u admin -p admin ${IMAGE_REPO}
+                     docker push ${IMAGE_REPO}/${project}:${VERSION}.v${BUILD_ID}
+                     """}
+                }	
+            }
+        }           
+        stage('更新项目至Kubernetes环境') {                       
+            steps {
+                container('jenkins-build'){                                                     
+                   retry(3) {sh 'kubectl -n ${project_namespace} set image ${project_kind} ${project_k8s_name} ${project_k8s_name}=${IMAGE_REPO}/${project}:${VERSION}.v${BUILD_ID} --record'}
+                }      
+            }
+        }                                    
+    }    
+    post {
+    	success {	
+    			echo "构建成功，发送消息到企业微信"
+    			sh """
+                    curl 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key='${QIYEWEIXIN_TOKEN_CREDS_PSW}'' \
+                        -H 'Content-Type: application/json' \
+                        -d '{
+                            "msgtype": "markdown",
+                            "markdown": {
+                                "content": "# newdee-mall电商项目更新情况 \n >## 😄👍  <font color=\\"info\\">构建成功</font>  😄👍\n >**<font color=\\"comment\\">项目名称:</font>**  ${JOB_BASE_NAME} \n >**<font color=\\"comment\\">更新的分支号:</font>**  ${VERSION} \n >**<font color=\\"comment\\">本次构建的镜像版本:</font>**  ${IMAGE_REPO}/${project}:${VERSION}.v${BUILD_ID} \n >**<font color=\\"comment\\">构建地址:</font>**  ${RUN_DISPLAY_URL}" 
+                            }
+                        }'	
+    			"""             
+    	}
+    	failure {			
+    			echo "构建失败，发送消息到企业微信"
+    			sh """
+                    curl 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key='${QIYEWEIXIN_TOKEN_CREDS_PSW}'' \
+                        -H 'Content-Type: application/json' \
+                        -d '{
+                            "msgtype": "markdown",
+                            "markdown": {
+                                "content": "# newdee-mall电商项目更新情况 \n >## 😖❌  <font color=\\"warning\\">构建失败</font>  😖❌\n >**<font color=\\"comment\\">项目名称:</font>**  ${JOB_BASE_NAME} \n >**<font color=\\"comment\\">更新的分支号:</font>**  ${VERSION} \n >**<font color=\\"comment\\">本次构建的镜像版本:</font>**  ${IMAGE_REPO}/${project}:${VERSION}.v${BUILD_ID} \n >**<font color=\\"comment\\">构建地址:</font>**  ${RUN_DISPLAY_URL}" 
+                            }
+                        }'
+ 				"""
+    	}
+    	always {					
+    		echo "构建流程结束"
+    	}
+    }
+}
