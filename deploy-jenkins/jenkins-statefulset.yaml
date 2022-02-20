@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: jenkins-master
+  namespace: jenkins
+spec:
+  replicas: 1
+  serviceName: jenkins
+  selector:
+    matchLabels:
+      app: jenkins-master
+  template:
+    metadata:
+      labels:
+        app: jenkins-master
+    spec:
+      serviceAccount: jenkins
+      containers:
+      - name: jenkins-master
+        image: harbor.jiangxl.com/jenkins/jenkinsci-blueocean:1.24.6
+        env:
+        - name: JAVA_OPTS
+          value: "-Xms4096m -Xmx5120m -Duser.timezone=Asia/Shanghai -Dhudson.model.DirectoryBrowserSupport.CSP="
+        ports:
+        - name: http
+          containerPort: 8080
+        - name: slave
+          containerPort: 50000
+        securityContext:
+          runAsUser: 0
+          privileged: true
+        volumeMounts:
+        - name: jenkins-data
+          mountPath: /var/jenkins_home
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+      volumes:
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+      hostAliases:
+      - hostnames:
+        - gitlab.jiangxl.com 
+        ip: 192.168.16.107
+  volumeClaimTemplates:
+    - metadata:
+        name: jenkins-data
+      spec:
+        storageClassName: jenkins-storageclass
+        accessModes:
+        - ReadWriteMany
+        resources:
+          requests:
+            storage: 10Gi
+      
+      

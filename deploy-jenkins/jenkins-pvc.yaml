@@ -1,0 +1,33 @@
+apiVersion: v1
+kind:  PersistentVolume
+metadata:
+  name: jenkins-agent-data-pv
+  labels:
+    pv: jenkins-agent-data-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+  - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    path: /data/k8s/jenkins-agent-data
+    server: 192.168.7.100
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jenkins-agent-data-pvc
+  namespace: jenkins
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  selector:
+    matchLabels:
+      pv: jenkins-agent-data-pv
+

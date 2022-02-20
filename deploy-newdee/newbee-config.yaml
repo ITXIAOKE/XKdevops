@@ -1,0 +1,22 @@
+apiVersion: v1    
+kind: ConfigMap  
+metadata:       
+  name: newbee-mall-cm
+  namespace: newbee-mall
+data:                
+  filebeat.yml: |     
+    filebeat.inputs:
+    - type: log
+      enabled: true
+      paths: /data/newbee-mall/newbee-mall.log
+      multiline.pattern: '^20[0-9]{2}-'
+      multiline.negate: true
+      multiline.match: after
+      tags: ["newbee"]
+    output.elasticsearch:
+      enabled: true
+      hosts: ["192.168.16.101:9200","192.168.16.102:9200","192.168.16.103:9200"]
+      indices:
+        - index: "newbee-mall-%{+yyyy.MM.dd}"
+          when.contains:
+            tags: "newbee"

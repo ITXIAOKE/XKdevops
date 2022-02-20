@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gitlab
+  namespace: jenkins
+spec:
+  replicas: 1
+  serviceName: gitlab
+  selector:
+    matchLabels:
+      app: gitlab
+  template:
+    metadata:
+      labels:
+        app: gitlab
+    spec:
+      initContainers:
+      - name: gitlab-data-git
+        image: harbor.jiangxl.com/jenkins/busybox:1.30
+        command: ["sh","-c","chown -R 998:998 /var/opt/gitlab"] 
+        securityContext:    
+          privileged: true  
+        volumeMounts:     
+        - name: gitlab-data
+          mountPath: /var/opt/gitlab
+      - name: gitlab-data-psql
+        image: harbor.jiangxl.com/jenkins/busybox:1.30
+        command: ["sh","-c","chown -R 996:996 /var/opt/gitlab/postgresql*"]
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: gitlab-data
+          mountPath: /var/opt/gitlab
+      - name: gitlab-data-redis
+        image: harbor.jiangxl.com/jenkins/busybox:1.30
+        command: ["sh","-c","chown -R 997:997 /var/opt/gitlab/redis"]
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: gitlab-data
+          mountPath: /var/opt/gitlab
+      - name: gitlab-data-prome           
+        image: harbor.jiangxl.com/jenkins/busybox:1.30
+        command: ["sh","-c","chown -R 992:992 /var/opt/gitlab/alertmanager /var/opt/gitlab/grafana /var/opt/gitlab/prometheus"]
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: gitlab-data
+          mountPath: /var/opt/gitlab
+
+      - name: gitlab-config-chown     
+        image: harbor.jiangxl.com/jenkins/busybox:1.30
+        command: ["sh","-c","chown -R 998:998 /etc/gitlab"] 
+        securityContext:  
+          privileged: true
+        volumeMounts:
+        - name: gitlab-config
+          mountPath: /etc/gitlab
+      containers: 
+      - name: gitlab
+        image: harbor.jiangxl.com/jenkins/gitlab-ce:13.11.4-ce.0
+        ports:
+        - name: http
+          containerPort: 80
+        volumeMounts:
+        - name: gitlab-data
+          mountPath: /var/opt/gitlab
+        - name: gitlab-config
+          mountPath: /etc/gitlab
+  volumeClaimTemplates:   
+    - metadata:          
+        name: gitlab-data  
+      spec:
+        storageClassName: gitlab-storageclass 
+        accessModes:
+        - ReadWriteMany      
+        resources:
+          requests:
+            storage: 10Gi
+    - metadata:
+        name: gitlab-config
+      spec:
+        storageClassName: gitlab-storageclass
+        accessModes:
+        - ReadWriteMany
+        resources:
+          requests:
+            storage: 1Gi
